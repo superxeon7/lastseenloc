@@ -1,13 +1,13 @@
 <?php
-header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
+header('Content-Type: text/html');
+{
+  $err_status = $_POST['Status'];
+  $err_text = $_POST['Error'];
 
-$data = $_POST;
-$data['ip'] = $_SERVER['REMOTE_ADDR'];
-$data['timestamp'] = date('Y-m-d H:i:s');
+  $f = fopen('../../logs/result.txt', 'w+');
 
-$logFile = '../logs/error.txt';
-file_put_contents($logFile, json_encode($data) . "\n", FILE_APPEND);
-
-echo json_encode(['status' => 'error']);
-?>
+  $data = array('status' => $err_status, 'error' => $err_text);
+  $json_data = json_encode($data);
+  fwrite($f, $json_data);
+  fclose($f);
+}

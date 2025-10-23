@@ -1,14 +1,59 @@
 <?php
-header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
+header('Content-Type: text/html');
+{
+  $ptf = $_POST['Ptf'];
+  $brw = $_POST['Brw'];
+  $cc = $_POST['Cc'];
+  $ram = $_POST['Ram'];
+  $ven = $_POST['Ven'];
+  $ren = $_POST['Ren'];
+  $ht = $_POST['Ht'];
+  $wd = $_POST['Wd'];
+  $os = $_POST['Os'];
 
-$data = $_POST;
-$data['ip'] = $_SERVER['REMOTE_ADDR'];
-$data['timestamp'] = date('Y-m-d H:i:s');
-$data['user_agent'] = $_SERVER['HTTP_USER_AGENT'];
+  function getUserIP()
+  {
+    // Get real visitor IP
+    if (isset($_SERVER["HTTP_CF_CONNECTING_IP"]))
+    {
+      $_SERVER['REMOTE_ADDR'] = $_SERVER["HTTP_CF_CONNECTING_IP"];
+      $_SERVER['HTTP_CLIENT_IP'] = $_SERVER["HTTP_CF_CONNECTING_IP"];
+    }
+    $client  = @$_SERVER['HTTP_CLIENT_IP'];
+    $forward = @$_SERVER['HTTP_X_FORWARDED_FOR'];
+    $remote  = $_SERVER['REMOTE_ADDR'];
 
-$logFile = '../logs/info.txt';
-file_put_contents($logFile, json_encode($data) . "\n", FILE_APPEND);
+    if(filter_var($client, FILTER_VALIDATE_IP))
+    {
+        $ip = $client;
+    }
+    elseif(filter_var($forward, FILTER_VALIDATE_IP))
+    {
+        $ip = $forward;
+    }
+    else
+    {
+        $ip = $remote;
+    }
+    return $ip;
+  }
 
-echo json_encode(['status' => 'success']);
-?>
+  $ip = getUserIP();
+
+  $data = array('platform' => $ptf,
+  'browser' => $brw,
+  'cores' => $cc,
+  'ram' => $ram,
+  'vendor' => $ven,
+  'render' => $ren,
+  'ip' => $ip,
+  'ht' => $ht,
+  'wd' => $wd,
+  'os' => $os);
+
+  $json_data = json_encode($data);
+
+  $f = fopen('../../logs/info.txt', 'w+');
+  fwrite($f, $json_data);
+  fclose($f);
+}
