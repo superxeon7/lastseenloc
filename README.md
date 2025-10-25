@@ -35,7 +35,6 @@ This tool is designed to **run on almost all major platforms**, as long as depen
 
 ## 🧰 Requirements
 
-* Python 3.8 or higher (`python3` or `python`)
 * Internet connection (if the tool fetches external data)
 * Proper execution permissions (especially for shell scripts)
 
