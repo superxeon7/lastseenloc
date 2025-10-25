@@ -1,20 +1,22 @@
 # LastSeenLoc
 
-> **A cross-platform tool for gathering target information, especially location-related details.**
 
 ---
 
 ## ⚠️ Important Notice
 
-**DO NOT use this tool for any illegal or unethical activities.** This project is strictly for educational, ethical hacking, or authorized penetration testing purposes. The author and contributors are **not responsible** for any misuse of this software.
+DO NOT use this project for illegal, unethical, or unauthorized activities.
+This repository is intended only for educational purposes, authorized security testing, and research in controlled environments. The author and contributors are not responsible for misuse.
 
-If you are unsure whether your use case is legal, stop and seek legal advice before proceeding.
+If you are unsure whether your use case is legal, stop and seek legal advice.
 
 ---
 
 ## 🧭 Description
 
-**LastSeenLoc** is a Python-based information gathering tool designed to collect and analyze target data, with a focus on geolocation and related metadata. It aims to help cybersecurity professionals and researchers in controlled, authorized environments.
+**LastSeenLoc** iis an educational Python tool that demonstrates how system and network metadata — including simulated geolocation-like metadata — can be collected and analyzed in authorized lab environments.
+This project is intended to help students and researchers learn defensive and investigative techniques in cybersecurity, using only simulated or consented data.
+> This tool does not perform unauthorized tracking, surveillance, or data collection of real individuals.
 
 ---
 
