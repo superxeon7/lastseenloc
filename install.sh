@@ -1,4 +1,3 @@
-#!/bin/bash
 set -e
 
 echo "🧠 Mendeteksi sistem operasi..."
@@ -6,7 +5,6 @@ OS=""
 PKG=""
 SUDO="sudo"
 
-# 🧩 Deteksi WSL terlebih dahulu
 if grep -qi microsoft /proc/version 2>/dev/null; then
     OS="WSL (Windows Subsystem for Linux)"
     if command -v apt >/dev/null 2>&1; then
@@ -16,7 +14,6 @@ if grep -qi microsoft /proc/version 2>/dev/null; then
     fi
 fi
 
-# 🧩 Deteksi OS umum jika bukan WSL
 if [ -z "$OS" ]; then
     if command -v apt >/dev/null 2>&1; then
         OS="Debian/Ubuntu/Kali"
@@ -43,25 +40,24 @@ fi
 
 echo "📀 Sistem terdeteksi: $OS"
 
-# 🧩 Jika OS tidak dikenali, coba cek PHP dulu
 if [ "$OS" = "Unknown" ]; then
-    if command -v php >/dev/null 2>&1; then
-        echo "✅ PHP sudah terinstal di sistem."
-        php -v
+    if command -v php >/dev/null 2>&1 || command -v python3 >/dev/null 2>&1; then
+        echo "✅ PHP atau Python sudah terinstal di sistem."
+        php -v 2>/dev/null || true
+        python3 --version 2>/dev/null || true
         exit 0
     else
-        echo "❌ Tidak dapat mendeteksi OS dan PHP belum terinstal."
+        echo "❌ Tidak dapat mendeteksi OS dan tidak ada PHP/Python terinstal."
         exit 1
     fi
 fi
 
-# 🧩 Nonaktifkan sudo di Termux
 if [ "$PKG" = "pkg" ]; then
     SUDO=""
 fi
 
+echo ""
 echo "⚙️ Menginstal PHP..."
-
 case "$PKG" in
     apt)
         $SUDO apt update -y
@@ -84,11 +80,33 @@ case "$PKG" in
         brew update
         brew install php
         ;;
-    *)
-        echo "❌ Tidak ada package manager yang cocok."
-        exit 1
+esac
+
+echo ""
+echo "⚙️ Menginstal Python..."
+case "$PKG" in
+    apt)
+        $SUDO apt install -y python3 python3-pip
+        ;;
+    pacman)
+        $SUDO pacman -Sy --noconfirm python python-pip
+        ;;
+    dnf)
+        $SUDO dnf install -y python3 python3-pip
+        ;;
+    apk)
+        $SUDO apk add python3 py3-pip
+        ;;
+    pkg)
+        pkg install -y python
+        ;;
+    brew)
+        brew install python
         ;;
 esac
 
-echo "✅ PHP berhasil diinstal!"
-php -v || echo "⚠️ PHP terinstal, tapi tidak bisa dijalankan otomatis."
+echo ""
+echo "✅ Instalasi selesai!"
+echo "📜 Versi terinstal:"
+php -v || echo "⚠️ PHP gagal dijalankan."
+python3 --version || echo "⚠️ Python gagal dijalankan."
